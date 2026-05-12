@@ -4,7 +4,7 @@ import os
 TO_EMAIL   = "efr3mov20@yandex.ru"
 SMTP_USER  = "efr3mov20@yandex.ru"
 FROM_EMAIL = "efr3mov20@yandex.ru"
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "hmybrcbcuzftpvaq")
 SMTP_HOST  = "smtp.yandex.ru"
 SMTP_PORT  = 465
 
