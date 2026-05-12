@@ -1,46 +1,26 @@
-# searcher.py
-"""
-Поисковый движок: обходит RSS-ленты и (опционально) API Яндекса.
-Извлекает из текстов ключевые поля: заказчик, инвестор, генподрядчик,
-проектировщик, бюджет, даты.
-
-На выходе: список словарей с карточками объектов.
-"""
-
-import re
-import logging
-import hashlib
-import json
+import re, json, logging, hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import feedparser
-import requests
+import feedparser, requests
 from bs4 import BeautifulSoup
 
 from config import (
-    RSS_FEEDS, YANDEX_XML_USER, YANDEX_XML_KEY,
-    YANDEX_QUERIES, YEAR_RANGE, DEDUP_DAYS
+    RSS_FEEDS, YANDEX_XML_USER, YANDEX_XML_KEY, YANDEX_QUERIES,
+    YEAR_RANGE, DEDUP_DAYS, USE_YANDEX_GPT, YANDEX_GPT_KEY, YANDEX_GPT_FOLDER
 )
 
 logger = logging.getLogger("searcher")
-
-# Файл для хранения хешей уже найденных объектов (чтобы не присылать повторы)
 HASHES_FILE = Path("known_hashes.json")
 
-
-# ---------- Управление хешами (защита от дублей) ----------
+# ---------- Хеши для дедупликации ----------
 def load_hashes():
     if not HASHES_FILE.exists():
         return set()
     try:
         data = json.loads(HASHES_FILE.read_text(encoding="utf-8"))
-        # Оставляем только «свежие» хеши (не старше DEDUP_DAYS дней)
         cutoff = datetime.now().strftime("%Y-%m-%d")
-        fresh = set()
-        for h, date_str in data.items():
-            if date_str >= cutoff:
-                fresh.add(h)
+        fresh = {h for h, d in data.items() if d >= cutoff}
         return fresh
     except Exception:
         return set()
@@ -48,38 +28,60 @@ def load_hashes():
 def save_hashes(hashes_set):
     cutoff = datetime.now().strftime("%Y-%m-%d")
     data = {}
-    # Загружаем старые и добавляем новые
     try:
         data = json.loads(HASHES_FILE.read_text(encoding="utf-8"))
     except Exception:
         data = {}
     for h in hashes_set:
         data[h] = cutoff
-    # Удаляем слишком старые
     limit = (datetime.now() - timedelta(days=DEDUP_DAYS)).strftime("%Y-%m-%d")
     data = {h: d for h, d in data.items() if d >= limit}
     HASHES_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 def object_hash(title, url):
-    """Создаёт уникальный хеш объекта по заголовку и ссылке."""
     raw = f"{title}|{url}".encode("utf-8")
     return hashlib.md5(raw).hexdigest()
 
+# ---------- Извлечение сущностей через Yandex GPT (опционально) ----------
+def extract_via_gpt(text):
+    """Отправляет текст в Yandex GPT и возвращает структурированный JSON."""
+    if not (USE_YANDEX_GPT and YANDEX_GPT_KEY and YANDEX_GPT_FOLDER):
+        return None
+    prompt = (
+        "Извлеки из текста в формате JSON (без комментариев) следующие поля: "
+        "title, customer, investor, general_contractor, designer, budget, planned_start, planned_end. "
+        "Если поле не найдено, запиши null. Текст:\n" + text[:3000]
+    )
+    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    headers = {
+        "Authorization": f"Api-Key {YANDEX_GPT_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "modelUri": f"gpt://{YANDEX_GPT_FOLDER}/yandexgpt/latest",
+        "completionOptions": {"stream": False, "temperature": 0.1, "maxTokens": 1000},
+        "messages": [{"role": "user", "text": prompt}]
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        resp.raise_for_status()
+        result = resp.json()["result"]["alternatives"][0]["message"]["text"]
+        # Убираем возможные обертки ```json...```
+        result = result.strip().strip("`")
+        data = json.loads(result)
+        return data
+    except Exception as e:
+        logger.warning(f"Ошибка Yandex GPT: {e}")
+        return None
 
-# ---------- Извлечение данных из текста ----------
+# ---------- Обычный эвристический парсер ----------
 def clean_html(raw_html):
-    soup = BeautifulSoup(raw_html, "html.parser")
-    return soup.get_text(separator=" ", strip=True)
+    return BeautifulSoup(raw_html, "html.parser").get_text(separator=" ", strip=True)
 
-def extract_fields(text, entry_title="", entry_link=""):
-    """
-    Эвристический парсер — ищет в тексте ключевые слова и вырезает данные.
-    Возвращает словарь с полями карточки.
-    """
+def extract_fields_regex(text, entry_title="", entry_link=""):
     lines = [l.strip() for l in text.split("\n") if l.strip()]
     title = entry_title or (lines[0] if lines else "Без названия")
 
-    # Вспомогательная функция для поиска
     def find_field(keywords):
         for kw in keywords:
             pattern = re.compile(rf"{kw}:?\s*(.+)", re.IGNORECASE)
@@ -93,30 +95,26 @@ def extract_fields(text, entry_title="", entry_link=""):
     gen_contract = find_field(["Генеральный подрядчик", "Генподрядчик", "Подрядчик"])
     designer     = find_field(["Проектировщик", "Проектная организация", "Генпроектировщик"])
 
-    # Бюджет (ищем числа с валютой)
     budget = ""
-    for pattern in [
+    for pat in [
         r"(?:Бюджет|Стоимость|Цена контракта|НМЦК|Сметная стоимость):?\s*([\d\s]+(?:руб|₽|млн|млрд|тыс\.?\s*руб))",
-        r"([\d]{1,3}(?:\s?\d{3})*(?:,\d+)?\s*(?:млн|млрд|тыс\.?\s*руб|₽|руб\.?))",
+        r"([\d]{1,3}(?:\s?\d{3})*(?:,\d+)?\s*(?:млн|млрд|тыс\.?\s*руб|₽|руб\.?))"
     ]:
-        m = re.search(pattern, text, re.IGNORECASE)
+        m = re.search(pat, text, re.IGNORECASE)
         if m:
             budget = m.group(1).strip()
             break
 
-    # Даты «начало» и «окончание»
-    start_date, end_date = "", ""
-    for pattern in [
-        r"(?:Начало|Срок начала|Старт):?\s*(\d{2}\.\d{2}\.\d{4})",
-        r"(?:с|от)\s+(\d{2}\.\d{2}\.\d{4})",
-    ]:
-        m = re.search(pattern, text)
+    start_date = ""
+    for pat in [r"(?:Начало|Срок начала|Старт):?\s*(\d{2}\.\d{2}\.\d{4})",
+                r"(?:с|от)\s+(\d{2}\.\d{2}\.\d{4})"]:
+        m = re.search(pat, text)
         if m:
             start_date = m.group(1)
             break
+    end_date = ""
     if start_date:
-        # Ищем окончание после начала
-        rest = text[text.index(start_date) + len(start_date):]
+        rest = text[text.index(start_date)+len(start_date):]
         for p in [r"(?:до|по|—|–)\s*(\d{2}\.\d{2}\.\d{4})",
                   r"(?:Окончание|Завершение):?\s*(\d{2}\.\d{2}\.\d{4})"]:
             m2 = re.search(p, rest)
@@ -136,6 +134,25 @@ def extract_fields(text, entry_title="", entry_link=""):
         "source_url": entry_link,
     }
 
+def smart_extract(text, title, url):
+    """Сначала пробует Yandex GPT, если не вышло — regex."""
+    gpt_result = extract_via_gpt(text)
+    if gpt_result:
+        logger.info("Поля извлечены через Yandex GPT")
+        gpt_result["source_url"] = url
+        if not gpt_result.get("title"):
+            gpt_result["title"] = title
+        return gpt_result
+    return extract_fields_regex(text, title, url)
+
+# ---------- Утилиты ----------
+def extract_year(text):
+    m = re.search(r"(20[2-9]\d)", text)
+    return int(m.group(1)) if m else None
+
+def is_within_range(year):
+    now = datetime.now().year
+    return now <= year <= now + YEAR_RANGE
 
 # ---------- Поиск по RSS ----------
 def search_rss():
@@ -143,35 +160,35 @@ def search_rss():
     logger.info("Обход RSS-лент...")
     for feed_url in RSS_FEEDS:
         try:
-            feed = feedparser.parse(feed_url)
+            feed = feedparser.parse(feed_url, request_headers={'User-Agent': 'Mozilla/5.0'})
             for entry in feed.entries:
-                title = entry.get("title", "")
-                url   = entry.get("link", "")
-                # Берём текст из разных возможных полей
-                summary = entry.get("summary", entry.get("description", entry.get("content", "")))
-                if isinstance(summary, list):
-                    summary = summary[0].get("value", "") if summary else ""
-                full_text = title + " " + clean_html(summary)
+                try:
+                    title = entry.get("title", "")
+                    url   = entry.get("link", "")
+                    summary = entry.get("summary", entry.get("description", entry.get("content", "")))
+                    if isinstance(summary, list):
+                        summary = summary[0].get("value", "") if summary else ""
+                    full_text = title + " " + clean_html(summary)
 
-                # Проверяем горизонт по годам
-                year = extract_year(full_text)
-                if not year or not is_within_range(year):
+                    year = extract_year(full_text)
+                    if not year or not is_within_range(year):
+                        continue
+
+                    h = object_hash(title, url)
+                    if h in known_hashes:
+                        continue
+
+                    data = smart_extract(full_text, title, url)
+                    if data["customer"] or data["designer"] or data["general_contractor"]:
+                        data["hash"] = h
+                        results.append(data)
+                        known_hashes.add(h)
+                except Exception as e:
+                    logger.warning(f"Ошибка обработки записи: {e}")
                     continue
-
-                # Защита от дубликатов
-                h = object_hash(title, url)
-                if h in known_hashes:
-                    continue
-
-                data = extract_fields(full_text, title, url)
-                if data["customer"] or data["designer"] or data["general_contractor"]:
-                    data["hash"] = h
-                    results.append(data)
-                    known_hashes.add(h)
         except Exception as e:
-            logger.warning(f"Ошибка обработки ленты {feed_url}: {e}")
+            logger.warning(f"Ошибка ленты {feed_url}: {e}")
     return results
-
 
 # ---------- Поиск через Яндекс.XML ----------
 def search_yandex():
@@ -202,17 +219,16 @@ def search_yandex():
                 url   = (doc.find("url").text if doc.find("url") else "").strip()
                 headline = doc.find("headline")
                 snippet = headline.text if headline else ""
-
                 full_text = title + " " + clean_html(snippet)
+
                 year = extract_year(full_text)
                 if not year or not is_within_range(year):
                     continue
-
                 h = object_hash(title, url)
                 if h in known_hashes:
                     continue
 
-                data = extract_fields(full_text, title, url)
+                data = smart_extract(full_text, title, url)
                 if data["customer"] or data["designer"] or data["general_contractor"]:
                     data["hash"] = h
                     results.append(data)
@@ -221,21 +237,8 @@ def search_yandex():
             logger.warning(f"Ошибка Яндекс.XML по запросу '{query}': {e}")
     return results
 
-
-# ---------- Вспомогательные функции ----------
-def extract_year(text):
-    """Находит ближайший год (2025–2035) в тексте."""
-    m = re.search(r"(20[2-9]\d)", text)
-    return int(m.group(1)) if m else None
-
-def is_within_range(year):
-    """Проверяет, попадает ли год в диапазон [текущий, текущий + YEAR_RANGE]."""
-    now = datetime.now().year
-    return now <= year <= now + YEAR_RANGE
-
-
 # ---------- Главная функция ----------
-known_hashes = set()  # будет заполнена при вызове search_all()
+known_hashes = set()
 
 def search_all():
     global known_hashes
