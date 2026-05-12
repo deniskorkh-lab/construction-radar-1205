@@ -4,10 +4,11 @@ from pathlib import Path
 
 import feedparser, requests
 from bs4 import BeautifulSoup
+from openai import OpenAI
 
 from config import (
     RSS_FEEDS, YANDEX_XML_USER, YANDEX_XML_KEY, YANDEX_QUERIES,
-    YEAR_RANGE, DEDUP_DAYS, USE_YANDEX_GPT, YANDEX_GPT_KEY, YANDEX_GPT_FOLDER
+    YEAR_RANGE, DEDUP_DAYS, USE_DEEPSEEK, DEEPSEEK_API_KEY, DEEPSEEK_MODEL, DEEPSEEK_BASE_URL
 )
 
 logger = logging.getLogger("searcher")
@@ -42,36 +43,42 @@ def object_hash(title, url):
     raw = f"{title}|{url}".encode("utf-8")
     return hashlib.md5(raw).hexdigest()
 
-# ---------- Извлечение сущностей через Yandex GPT (опционально) ----------
-def extract_via_gpt(text):
-    """Отправляет текст в Yandex GPT и возвращает структурированный JSON."""
-    if not (USE_YANDEX_GPT and YANDEX_GPT_KEY and YANDEX_GPT_FOLDER):
+# ---------- Извлечение сущностей через DeepSeek (OpenRouter) ----------
+def extract_via_deepseek(text):
+    """Отправляет текст в DeepSeek через OpenRouter и возвращает структурированный JSON."""
+    if not (USE_DEEPSEEK and DEEPSEEK_API_KEY):
         return None
     prompt = (
         "Извлеки из текста в формате JSON (без комментариев) следующие поля: "
         "title, customer, investor, general_contractor, designer, budget, planned_start, planned_end. "
         "Если поле не найдено, запиши null. Текст:\n" + text[:3000]
     )
-    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
-    headers = {
-        "Authorization": f"Api-Key {YANDEX_GPT_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "modelUri": f"gpt://{YANDEX_GPT_FOLDER}/yandexgpt/latest",
-        "completionOptions": {"stream": False, "temperature": 0.1, "maxTokens": 1000},
-        "messages": [{"role": "user", "text": prompt}]
-    }
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=20)
-        resp.raise_for_status()
-        result = resp.json()["result"]["alternatives"][0]["message"]["text"]
+        client = OpenAI(
+            api_key=DEEPSEEK_API_KEY,
+            base_url=DEEPSEEK_BASE_URL,
+        )
+        response = client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            messages=[
+                {"role": "system", "content": "Ты — система для извлечения структурированных данных из текстов о строительстве. Ты всегда отвечаешь только JSON, без дополнительных пояснений."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            max_tokens=500,
+        )
+        result = response.choices[0].message.content.strip()
         # Убираем возможные обертки ```json...```
-        result = result.strip().strip("`")
+        if result.startswith("```json"):
+            result = result[7:]
+        if result.startswith("```"):
+            result = result[3:]
+        if result.endswith("```"):
+            result = result[:-3]
         data = json.loads(result)
         return data
     except Exception as e:
-        logger.warning(f"Ошибка Yandex GPT: {e}")
+        logger.warning(f"Ошибка DeepSeek: {e}")
         return None
 
 # ---------- Обычный эвристический парсер ----------
@@ -135,14 +142,14 @@ def extract_fields_regex(text, entry_title="", entry_link=""):
     }
 
 def smart_extract(text, title, url):
-    """Сначала пробует Yandex GPT, если не вышло — regex."""
-    gpt_result = extract_via_gpt(text)
-    if gpt_result:
-        logger.info("Поля извлечены через Yandex GPT")
-        gpt_result["source_url"] = url
-        if not gpt_result.get("title"):
-            gpt_result["title"] = title
-        return gpt_result
+    """Сначала пробует DeepSeek, если не вышло — regex."""
+    deepseek_result = extract_via_deepseek(text)
+    if deepseek_result:
+        logger.info("Поля извлечены через DeepSeek (OpenRouter)")
+        deepseek_result["source_url"] = url
+        if not deepseek_result.get("title"):
+            deepseek_result["title"] = title
+        return deepseek_result
     return extract_fields_regex(text, title, url)
 
 # ---------- Утилиты ----------
