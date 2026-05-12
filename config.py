@@ -1,14 +1,10 @@
 import os
 
-# ========== НАСТРОЙКИ ПОЧТЫ ==========
+# ========== ПОЧТА ==========
 TO_EMAIL = "efr3mov20@yandex.ru"
 SMTP_USER = "efr3mov20@yandex.ru"
 FROM_EMAIL = "efr3mov20@yandex.ru"
-
-# Пароль приложения (секретный) берётся из переменной окружения.
-# GitHub Actions подставит его из секрета или из environment.
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-
 SMTP_HOST = "smtp.yandex.ru"
 SMTP_PORT = 465
 
@@ -21,7 +17,7 @@ RSS_FEEDS = [
     "https://tass.ru/rss/v2.xml?sections=WyI0MzQ3Il0=",
 ]
 
-# ========== API ЯНДЕКСА (если нет ключей – оставьте пустыми) ==========
+# ========== API ЯНДЕКСА (пусто – только RSS) ==========
 YANDEX_XML_USER = ""
 YANDEX_XML_KEY = ""
 
