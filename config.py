@@ -17,11 +17,11 @@ RSS_FEEDS = [
     "https://tass.ru/rss/v2.xml?sections=WyI0MzQ3Il0=",
 ]
 
-# ========== ПОИСК ЧЕРЕЗ ЯНДЕКС (БЕЗ КЛЮЧА – ТОЛЬКО RSS) ==========
+# ========== API ЯНДЕКСА (не обязательно) ==========
 YANDEX_XML_USER = ""
 YANDEX_XML_KEY  = ""
 
-# ========== КАТЕГОРИИ ОБЪЕКТОВ (ДЛЯ ФОРМИРОВАНИЯ ЗАПРОСОВ) ==========
+# ========== КАТЕГОРИИ ОБЪЕКТОВ ==========
 CATEGORIES = [
     "жилая недвижимость",
     "социально-культурная недвижимость",
@@ -47,7 +47,6 @@ CATEGORIES = [
     "паркинг",
 ]
 
-# Автоматически генерируем поисковые фразы для Яндекса
 YANDEX_QUERIES = [
     f'"проектирование" "{cat}" строительство'
     for cat in CATEGORIES
@@ -60,16 +59,15 @@ YANDEX_QUERIES = [
 ]
 
 # ========== ГОРИЗОНТ ПОИСКА ==========
-# Ищем объекты, у которых год начала работ попадает в [текущий год, текущий год + 4]
 YEAR_RANGE = 4
-
-# Дней помнить дубликаты
 DEDUP_DAYS = 90
 
-# ========== ИНТЕГРАЦИЯ С ИИ ЯНДЕКСА (ОПЦИОНАЛЬНО) ==========
-# Если хотите улучшить извлечение сущностей через Yandex GPT,
-# получите ключ в Yandex Cloud (https://console.cloud.yandex.ru/)
-# и заполните поля ниже.
-YANDEX_GPT_KEY    = ""   # API-ключ сервисного аккаунта
-YANDEX_GPT_FOLDER = ""   # Идентификатор каталога
-USE_YANDEX_GPT    = False # Переключите на True, когда заполните ключ
+# ========== ИНТЕГРАЦИЯ С ИИ DeepSeek ЧЕРЕЗ OpenRouter ==========
+# Включите DeepSeek, установив USE_DEEPSEEK = True
+USE_DEEPSEEK = True
+# Бесплатный API-ключ с OpenRouter
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+# Бесплатная модель DeepSeek на OpenRouter
+DEEPSEEK_MODEL = "deepseek/deepseek-v4-flash:free"
+# API-endpoint OpenRouter (совместим с OpenAI)
+DEEPSEEK_BASE_URL = "https://openrouter.ai/api/v1"
