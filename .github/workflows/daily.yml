@@ -2,29 +2,28 @@ name: Daily Construction Radar
 
 on:
   schedule:
-    - cron: '0 6 * * *'
+    # 09:30 по Москве = 06:30 UTC
+    - cron: '30 6 * * *'
   workflow_dispatch:
 
 jobs:
   search-and-email:
     runs-on: ubuntu-latest
     env:
-      SMTP_PASSWORD: akoofendpieerflj
-    timeout-minutes: 10
+      SMTP_PASSWORD: akoofendpieerflj          # ваш пароль приложения
+    timeout-minutes: 8
     steps:
       - name: 📥 Скачать код
         uses: actions/checkout@v5
-
-      - name: 📂 Показать файлы (отладка)
-        run: ls -la
 
       - name: 🐍 Установить Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
-      - name: 📦 Установить зависимости
+      - name: 📦 Зависимости
         run: pip install requests beautifulsoup4 lxml feedparser
 
       - name: 🔍 Запустить радар и отправить письмо
+        timeout-minutes: 6
         run: python main.py
