@@ -64,7 +64,7 @@ DEDUP_DAYS = 90
 
 # ========== ИНТЕГРАЦИЯ С ИИ DeepSeek ЧЕРЕЗ OpenRouter ==========
 # Включите DeepSeek, установив USE_DEEPSEEK = True
-USE_DEEPSEEK = True
+USE_DEEPSEEK = False
 # Бесплатный API-ключ с OpenRouter
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 # Бесплатная модель DeepSeek на OpenRouter
