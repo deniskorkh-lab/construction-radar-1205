@@ -9,18 +9,21 @@ jobs:
   search-and-email:
     runs-on: ubuntu-latest
     env:
-      SMTP_PASSWORD: akoofendpieerflj   # ваш пароль приложения Яндекса
+      SMTP_PASSWORD: akoofendpieerflj
     timeout-minutes: 10
     steps:
       - name: 📥 Скачать код
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: 📂 Показать файлы (отладка)
+        run: ls -la
 
       - name: 🐍 Установить Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
-      - name: 📦 Зависимости
+      - name: 📦 Установить зависимости
         run: pip install requests beautifulsoup4 lxml feedparser
 
       - name: 🔍 Запустить радар и отправить письмо
