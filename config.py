@@ -68,6 +68,6 @@ USE_DEEPSEEK = True
 # Бесплатный API-ключ с OpenRouter
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 # Бесплатная модель DeepSeek на OpenRouter
-DEEPSEEK_MODEL = "deepseek/deepseek-v4-flash:free"
+DEEPSEEK_MODEL = "deepseek/deepseek-chat:free"
 # API-endpoint OpenRouter (совместим с OpenAI)
 DEEPSEEK_BASE_URL = "https://openrouter.ai/api/v1"
