@@ -10,8 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - name: 📥 Скачать код
         uses: actions/checkout@v5
@@ -22,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: 📦 Зависимости
-        run: pip install requests beautifulsoup4 lxml feedparser openai
+        run: pip install requests beautifulsoup4 lxml feedparser
 
       - name: 🔍 Запустить радар и отправить письмо
         timeout-minutes: 6
