@@ -1,0 +1,27 @@
+name: Daily Construction Radar
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  search-and-email:
+    runs-on: ubuntu-latest
+    env:
+      SMTP_PASSWORD: akoofendpieerflj   # ваш пароль приложения Яндекса
+    timeout-minutes: 10
+    steps:
+      - name: 📥 Скачать код
+        uses: actions/checkout@v4
+
+      - name: 🐍 Установить Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Зависимости
+        run: pip install requests beautifulsoup4 lxml feedparser
+
+      - name: 🔍 Запустить радар и отправить письмо
+        run: python main.py
